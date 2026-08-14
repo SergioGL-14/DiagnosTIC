@@ -212,14 +212,15 @@ function Diagnostico-Conectividad {
                     )
             }
 
-            Write-Output "⏱️ Ping a 8.8.8.8 (ICMP)..."
-            $ext = Test-Connection -ComputerName 8.8.8.8 -Count 4 -Quiet -ErrorAction SilentlyContinue
+            $icmpTarget = Get-ExternalDiagnosticTarget -Kind Icmp -Default '8.8.8.8'
+            Write-Output ("⏱️ Ping a {0} (ICMP)..." -f $icmpTarget)
+            $ext = Test-Connection -ComputerName $icmpTarget -Count 4 -Quiet -ErrorAction SilentlyContinue
             if ($ext) {
                 Write-Output "✅ Conectividad externa (ICMP) OK."
             } else {
                 Write-DiagnosticEvent -Severity 'Warning' `
                     -Component 'Network' -Subcomponent 'Connectivity:ExternalICMP' `
-                    -Message '⚠️ No se alcanzó 8.8.8.8 por ICMP.' `
+                    -Message ("⚠️ No se alcanzó {0} por ICMP." -f $icmpTarget) `
                     -Causes @(
                         'ICMP bloqueado por firewall o ISP',
                         'Salida a Internet restringida o sin NAT',
@@ -232,11 +233,13 @@ function Diagnostico-Conectividad {
                     )
             }
 
-            Write-Output "🔌 Prueba TCP a 8.8.8.8:53 y 1.1.1.1:443..."
+            $dnsTcpTarget = Get-ExternalDiagnosticTarget -Kind DnsTcp -Default '8.8.8.8'
+            $httpsTcpTarget = Get-ExternalDiagnosticTarget -Kind HttpsTcp -Default '1.1.1.1'
+            Write-Output ("🔌 Prueba TCP a {0}:53 y {1}:443..." -f $dnsTcpTarget, $httpsTcpTarget)
             if (Get-Command -Name Test-NetConnection -ErrorAction SilentlyContinue) {
                 try {
-                    $t1 = Test-NetConnection -ComputerName 8.8.8.8 -Port 53 -WarningAction SilentlyContinue -InformationLevel Detailed
-                    if ($t1.TcpTestSucceeded) { Write-Output "✅ TCP 8.8.8.8:53 OK." } else { Write-Output "⚠️ TCP 8.8.8.8:53 falló." }
+                    $t1 = Test-NetConnection -ComputerName $dnsTcpTarget -Port 53 -WarningAction SilentlyContinue -InformationLevel Detailed
+                    if ($t1.TcpTestSucceeded) { Write-Output ("✅ TCP {0}:53 OK." -f $dnsTcpTarget) } else { Write-Output ("⚠️ TCP {0}:53 falló." -f $dnsTcpTarget) }
                 } catch {
                     Write-DiagnosticEvent -Severity 'Info' `
                         -Component 'Network' -Subcomponent 'Connectivity:TCP53' `
@@ -254,8 +257,8 @@ function Diagnostico-Conectividad {
                 }
 
                 try {
-                    $t2 = Test-NetConnection -ComputerName 1.1.1.1 -Port 443 -WarningAction SilentlyContinue -InformationLevel Detailed
-                    if ($t2.TcpTestSucceeded) { Write-Output "✅ TCP 1.1.1.1:443 OK." } else { Write-Output "⚠️ TCP 1.1.1.1:443 falló." }
+                    $t2 = Test-NetConnection -ComputerName $httpsTcpTarget -Port 443 -WarningAction SilentlyContinue -InformationLevel Detailed
+                    if ($t2.TcpTestSucceeded) { Write-Output ("✅ TCP {0}:443 OK." -f $httpsTcpTarget) } else { Write-Output ("⚠️ TCP {0}:443 falló." -f $httpsTcpTarget) }
                 } catch {
                     Write-DiagnosticEvent -Severity 'Info' `
                         -Component 'Network' -Subcomponent 'Connectivity:TCP443' `

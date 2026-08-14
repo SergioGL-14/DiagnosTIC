@@ -2,7 +2,7 @@
 
 Resumen
 -------
-DiagnosTIC_UI es una aplicación WPF implementada en Windows PowerShell 5.1 destinada a orquestar y presentar diagnósticos locales del sistema. Ejecuta módulos independientes en procesos aislados (jobs), captura su salida (texto y eventos estructurados) y presenta resultados con recomendaciones y causas.
+DiagnosTIC_UI es una aplicación WPF implementada en Windows PowerShell 5.1 destinada a orquestar y presentar diagnósticos locales del sistema. Ejecuta módulos independientes en procesos aislados (jobs), captura su salida (texto y eventos estructurados) y presenta resultados con recomendaciones y causas. El modo remoto solo informa de que no está implementado; no abre sesiones ni ejecuta módulos locales contra otro equipo.
 
 Características principales
 -------------------------
@@ -15,7 +15,7 @@ Requisitos
 ----------
 - Windows con PowerShell 5.1.
 - .NET PresentationFramework (se carga por `main.ps1`).
-- Privilegios administrativos para ciertas comprobaciones (SFC, DISM, chkdsk, acceso a registro).
+- Privilegios administrativos para ciertas comprobaciones (DISM y acceso a registro). Las reparaciones se invocan aparte y no forman parte del diagnóstico por defecto.
 
 Estructura del repositorio
 --------------------------
@@ -31,6 +31,14 @@ Cómo funciona
 2. El usuario selecciona análisis y lanza la ejecución; cada análisis se encola y se ejecuta en un job aislado.
 3. Los módulos emiten trazas (`Write-Output`) y/o objetos `DiagnosticEvent` (usando `New-DiagnosticEvent` / `Write-DiagnosticEvent`).
 4. La UI consume la salida de los jobs de forma incremental y actualiza paneles, estadísticas y log.
+
+Destinos externos
+-----------------
+Las comprobaciones de red usan estos valores predeterminados, configurables mediante variables de entorno: `DIAGNOSTIC_EXTERNAL_ICMP`, `DIAGNOSTIC_EXTERNAL_DNS_TCP` y `DIAGNOSTIC_EXTERNAL_HTTPS_TCP`.
+
+Reparaciones
+------------
+`Diagnostico-IntegridadSistema` solo comprueba DISM y no ejecuta SFC. `Reparacion-IntegridadSistema` es una operación separada, modificadora y protegida por `ShouldProcess`; no se llama desde la UI.
 
 Formato recomendado: `DiagnosticEvent`
 ----------------------------------
@@ -62,6 +70,7 @@ Buenas prácticas para módulos
 - Emitir `DiagnosticEvent` para hallazgos relevantes y `Write-Output` para trazas.
 - Manejar errores con `try/catch` y usar `Write-DiagnosticException` para emitir errores estructurados.
 - Evitar operaciones interactivas (Read-Host) en módulos que se ejecutan en jobs.
+- Mantener las comprobaciones sin efectos modificadores; las reparaciones deben exponerse como funciones separadas y solicitar confirmación.
 
 Añadir nuevos análisis
 ----------------------
@@ -84,6 +93,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 Notas operativas
 ----------------
 - Ejecutar como Administrador para comprobaciones que lo requieran.
+- Seleccionar `Remoto` no consulta el equipo indicado: el soporte de transporte remoto no existe todavía.
 - Revisar módulos antes de ejecutar en entornos de producción.
 - Los jobs ofrecen aislamiento pero incrementan el uso de recursos si se lanzan muchos simultáneamente.
 

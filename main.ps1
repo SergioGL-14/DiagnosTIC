@@ -28,6 +28,7 @@ function Get-UiElement {
 
 # UI Elements
 $txtEquipo         = Get-UiElement 'txtEquipo'
+$cmbTargetMode     = Get-UiElement 'cmbTargetMode'
 $treeAnalisis      = Get-UiElement 'treeAnalisis'
 $btnRun            = Get-UiElement 'btnRun'
 $btnClear          = Get-UiElement 'btnClear'
@@ -70,9 +71,10 @@ function Enqueue-AnalysisJob {
     param(
         [Parameter(Mandatory = $true)][string]$FuncName,
         [Parameter(Mandatory = $true)][string]$Label,
-        [Parameter(Mandatory = $true)][string]$Equipo
+        [Parameter(Mandatory = $true)][string]$Equipo,
+        [Parameter(Mandatory = $true)][ValidateSet('Local','Remoto')][string]$TargetMode
     )
-    $script:JobQueue.Enqueue(@{ Func = $FuncName; Label = $Label; Equipo = $Equipo })
+    $script:JobQueue.Enqueue(@{ Func = $FuncName; Label = $Label; Equipo = $Equipo; TargetMode = $TargetMode })
 }
 
 function Try-StartNextJob {
@@ -81,7 +83,7 @@ function Try-StartNextJob {
     if ($script:JobQueue.Count -gt 0) {
         $task = $script:JobQueue.Dequeue()
         Append-TechLog ("▶️ Iniciando siguiente en cola: {0}" -f $task.Label)
-        Start-AnalysisJob -FuncName $task.Func -Label $task.Label -Equipo $task.Equipo
+        Start-AnalysisJob -FuncName $task.Func -Label $task.Label -Equipo $task.Equipo -TargetMode $task.TargetMode
     }
 }
 
@@ -510,14 +512,15 @@ function Start-AnalysisJob {
     param(
         [Parameter(Mandatory = $true)][string]$FuncName,
         [Parameter(Mandatory = $true)][string]$Label,
-        [Parameter(Mandatory = $true)][string]$Equipo
+        [Parameter(Mandatory = $true)][string]$Equipo,
+        [Parameter(Mandatory = $true)][ValidateSet('Local','Remoto')][string]$TargetMode
     )
 
     $moduleDir = Join-Path $script:ScriptRoot 'modules'
     $utilsPath = Join-Path $script:ScriptRoot 'utils\Utils.ps1'
 
     $jobScript = {
-        param($ModuleDirInner, $UtilsPathInner, $FuncInner, $EquipoInner)
+        param($ModuleDirInner, $UtilsPathInner, $FuncInner, $EquipoInner, $TargetModeInner)
 
         try {
             # Ajuste de encoding para salida de comandos nativos en PS 5.1 (OEM)
@@ -535,6 +538,12 @@ function Start-AnalysisJob {
                 } catch {
                     Write-Output ("⚠️ Error cargando Utils.ps1: {0}" -f $_.Exception.Message)
                 }
+            }
+
+            # Los módulos usan APIs locales. Nunca simular una consulta remota ejecutándolos aquí.
+            if ($TargetModeInner -eq 'Remoto' -or -not (Test-IsLocalComputer -ComputerName $EquipoInner)) {
+                Write-RemoteDiagnosticUnavailable -ComputerName $EquipoInner
+                return
             }
 
             # Cargar módulos
@@ -588,7 +597,7 @@ function Start-AnalysisJob {
         }
     }
 
-    $job = Start-Job -ScriptBlock $jobScript -ArgumentList $moduleDir, $utilsPath, $FuncName, $Equipo
+    $job = Start-Job -ScriptBlock $jobScript -ArgumentList $moduleDir, $utilsPath, $FuncName, $Equipo, $TargetMode
     $script:JobLabels[$job.Id] = $Label
     $script:JobProcessedCounts[$job.Id] = 0
     Append-TechLog ("🚀 Job iniciado: {0} (ID: {1})" -f $Label, $job.Id)
@@ -806,6 +815,8 @@ $btnRun.Add_Click({
         $equipo = [System.Environment]::MachineName
     }
 
+    $modoDestino = if ($cmbTargetMode.SelectedItem.Content -eq 'Remoto') { 'Remoto' } else { 'Local' }
+
     # Limpiar cola y jobs existentes antes de empezar
     while ($script:JobQueue.Count -gt 0) {
         $null = $script:JobQueue.Dequeue()
@@ -842,7 +853,7 @@ $btnRun.Add_Click({
     $uniqueSelected = $selected | Sort-Object -Property Func -Unique
     foreach ($s in $uniqueSelected) {
         Append-TechLog ("▶️ Encolando: {0}" -f $s.Label)
-        Enqueue-AnalysisJob -FuncName $s.Func -Label $s.Label -Equipo $equipo
+        Enqueue-AnalysisJob -FuncName $s.Func -Label $s.Label -Equipo $equipo -TargetMode $modoDestino
     }
 
     # Si no hay nada en ejecución, arrancar el primero en cola

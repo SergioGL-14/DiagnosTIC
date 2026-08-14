@@ -74,6 +74,42 @@ function Get-ObjectPropertyValue {
     return $null
 }
 
+function Test-IsLocalComputer {
+    <# Returns whether a target name identifies this host. No remote connection is attempted. #>
+    [CmdletBinding()]
+    param([AllowNull()][string]$ComputerName)
+
+    if ([string]::IsNullOrWhiteSpace($ComputerName)) { return $true }
+    $target = $ComputerName.Trim().TrimStart('\\')
+    $localNames = @('.', 'localhost', [Environment]::MachineName, $env:COMPUTERNAME)
+    return $localNames -contains $target
+}
+
+function Get-ExternalDiagnosticTarget {
+    <# Reads an external probe destination without hardcoding deployment-specific endpoints. #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('Icmp','DnsTcp','HttpsTcp')][string]$Kind,
+        [Parameter(Mandatory = $true)][string]$Default
+    )
+
+    $environmentName = "DIAGNOSTIC_EXTERNAL_{0}" -f $Kind.ToUpperInvariant()
+    $configured = [Environment]::GetEnvironmentVariable($environmentName, 'Process')
+    if ([string]::IsNullOrWhiteSpace($configured)) { $configured = [Environment]::GetEnvironmentVariable($environmentName, 'User') }
+    if ([string]::IsNullOrWhiteSpace($configured)) { $configured = [Environment]::GetEnvironmentVariable($environmentName, 'Machine') }
+    if ([string]::IsNullOrWhiteSpace($configured)) { return $Default }
+    return $configured.Trim()
+}
+
+function Write-RemoteDiagnosticUnavailable {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$ComputerName)
+
+    Write-DiagnosticEvent -Severity 'Info' -Component 'Execution' -Subcomponent 'Remote:NotConfigured' `
+        -Message ("ℹ️ Se solicitó diagnóstico remoto para '{0}', pero este proyecto solo implementa consultas locales. No se ejecutó ninguna consulta sobre otro equipo." -f $ComputerName) `
+        -Recommendations @('Use el modo Local para diagnosticar este equipo', 'Configure una implementación remota explícita antes de habilitar consultas remotas')
+}
+
 function Write-Lines {
     <#
     .SYNOPSIS

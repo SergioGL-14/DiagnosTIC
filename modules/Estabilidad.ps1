@@ -456,7 +456,7 @@ function Diagnostico-IntegridadSistema {
         
         # ===== DISM CheckHealth (rápido) =====
         Write-Output "🔍 Ejecutando DISM /CheckHealth..."
-        $dismCheckFile = Join-Path $env:TEMP "dism_checkhealth.txt"
+        $dismCheckFile = [IO.Path]::GetTempFileName()
         
         $dismCheckProcess = Start-Process -FilePath "dism.exe" `
             -ArgumentList "/Online", "/Cleanup-Image", "/CheckHealth" `
@@ -492,60 +492,7 @@ function Diagnostico-IntegridadSistema {
         
         Write-Output ""
         
-        # ===== SFC Scan =====
-        Write-Output "🔍 Ejecutando SFC /ScanNow (puede tardar 10-15 minutos)..."
-        $sfcFile = Join-Path $env:TEMP "sfc_scan.txt"
-        
-        $sfcProcess = Start-Process -FilePath "sfc.exe" `
-            -ArgumentList "/scannow" `
-            -NoNewWindow -Wait -PassThru -RedirectStandardOutput $sfcFile
-        
-        if (Wait-ForFile -FilePath $sfcFile -TimeoutSeconds 1200) {
-            $sfcResult = Get-Content $sfcFile -Raw -ErrorAction SilentlyContinue
-            Remove-Item $sfcFile -Force -ErrorAction SilentlyContinue
-            
-            if ($sfcResult -match 'did not find any integrity violations') {
-                Write-Output "✅ SFC: Sin violaciones de integridad detectadas"
-            }
-            elseif ($sfcResult -match 'found corrupt files and successfully repaired them') {
-                Write-DiagnosticEvent -Severity 'Warning' `
-                    -Component 'Stability' -Subcomponent 'SFC:Repaired' `
-                    -Message '⚠️ SFC encontró y reparó archivos corruptos' `
-                    -Causes @(
-                        'Archivos del sistema estaban dañados',
-                        'Posible causa: actualizaciones, malware, o problemas de disco'
-                    ) `
-                    -Recommendations @(
-                        'Revisar CBS.log para detalles: C:\Windows\Logs\CBS\CBS.log',
-                        'Reiniciar el equipo',
-                        'Ejecutar análisis antivirus completo',
-                        'Verificar salud del disco con chkdsk /f',
-                        'Monitorizar estabilidad del sistema'
-                    )
-            }
-            elseif ($sfcResult -match 'found corrupt files but was unable to fix some of them') {
-                Write-DiagnosticEvent -Severity 'Error' `
-                    -Component 'Stability' -Subcomponent 'SFC:UnableToRepair' `
-                    -Message '❌ SFC encontró archivos corruptos que no pudo reparar' `
-                    -Causes @(
-                        'Corrupción severa de archivos del sistema',
-                        'Archivos protegidos por otro proceso',
-                        'Problema más profundo en el almacén de componentes'
-                    ) `
-                    -Recommendations @(
-                        'Ejecutar: DISM /Online /Cleanup-Image /RestoreHealth',
-                        'Después volver a ejecutar: sfc /scannow',
-                        'Si persiste, ejecutar en Modo Seguro',
-                        'Revisar CBS.log para identificar archivos específicos',
-                        'Como último recurso, considerar reparación con medios de instalación',
-                        'O realizar instalación limpia conservando archivos personales'
-                    )
-            } else {
-                Write-Output "ℹ️ SFC: Resultado no concluyente o proceso no completado"
-            }
-        } else {
-            Write-Output "⚠️ SFC: Timeout o no se pudo completar el análisis"
-        }
+        Write-Output "ℹ️ SFC no se ejecuta durante el diagnóstico porque puede modificar archivos del sistema."
         
         Write-Output ""
         Write-Output "✅ Verificación de integridad del sistema completada"
@@ -632,7 +579,7 @@ function Diagnostico-HistorialReinicios {
         Write-Output ("   • Apagados inesperados: {0}" -f $unexpectedShutdowns.Count)
         
         if ($unexpectedShutdowns.Count -gt 0) {
-            $unexpectedPercent = [math]::Round(($unexpectedShutdowns.Count / $boots.Count) * 100, 1)
+            $unexpectedPercent = if ($boots.Count -gt 0) { [math]::Round(($unexpectedShutdowns.Count / $boots.Count) * 100, 1) } else { 0 }
             
             $severity = if ($unexpectedPercent -gt 30) { 'Error' } elseif ($unexpectedPercent -gt 10) { 'Warning' } else { 'Info' }
             
@@ -806,5 +753,26 @@ function Diagnostico-EstadoBateria {
             -Severity 'Error' -Component 'Stability' -Subcomponent 'Battery' `
             -ContextMessage 'Error durante la verificación de batería.' `
             -Recommendations @('Verificar drivers de batería y ACPI')
+    }
+}
+
+function Reparacion-IntegridadSistema {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param([string]$equipo)
+
+    if (-not (Test-IsLocalComputer -ComputerName $equipo)) {
+        Write-RemoteDiagnosticUnavailable -ComputerName $equipo
+        return
+    }
+    if ($PSCmdlet.ShouldProcess($equipo, 'Ejecutar SFC /scannow')) {
+        $sfcFile = [IO.Path]::GetTempFileName()
+        try {
+            Start-Process -FilePath 'sfc.exe' -ArgumentList '/scannow' -NoNewWindow -Wait -PassThru -RedirectStandardOutput $sfcFile | Out-Null
+            if (Wait-ForFile -FilePath $sfcFile -TimeoutSeconds 1200) {
+                Get-Content $sfcFile -Raw -ErrorAction SilentlyContinue
+            }
+        } finally {
+            Remove-Item $sfcFile -Force -ErrorAction SilentlyContinue
+        }
     }
 }

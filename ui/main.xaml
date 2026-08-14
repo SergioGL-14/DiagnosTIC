@@ -52,7 +52,11 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0">
-          <TextBlock Text="🖥️ Equipo" FontWeight="Bold" FontSize="14" Margin="0,0,0,8" />
+          <TextBlock Text="🖥️ Destino" FontWeight="Bold" FontSize="14" Margin="0,0,0,8" />
+          <ComboBox x:Name="cmbTargetMode" Padding="8" FontSize="13" Margin="0,0,0,6">
+            <ComboBoxItem Content="Local" IsSelected="True" />
+            <ComboBoxItem Content="Remoto" />
+          </ComboBox>
           <TextBox x:Name="txtEquipo" Padding="8" FontSize="13" />
         </StackPanel>
 
