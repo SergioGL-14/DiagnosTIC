@@ -1,56 +1,109 @@
-# DiagnosTIC_UI — Interfaz WPF en PowerShell
+# DiagnosTIC_UI - PowerShell WPF interface
 
-Resumen
--------
-DiagnosTIC_UI es una aplicación WPF implementada en Windows PowerShell 5.1 destinada a orquestar y presentar diagnósticos locales del sistema. Ejecuta módulos independientes en procesos aislados (jobs), captura su salida (texto y eventos estructurados) y presenta resultados con recomendaciones y causas. El modo remoto solo informa de que no está implementado; no abre sesiones ni ejecuta módulos locales contra otro equipo.
+## Overview
 
-Características principales
--------------------------
-- Ejecuta módulos independientes desde la carpeta `modules/`.
-- Aislamiento de ejecución mediante jobs para mantener la UI responsiva.
-- Salida estructurada (`DiagnosticEvent`) para hallazgos enriquecidos (severidad, causas, recomendaciones).
-- Panel de resultados en tiempo real y log técnico.
+DiagnosTIC_UI is a Windows PowerShell 5.1 WPF application for orchestrating
+and presenting local system diagnostics. It runs independent diagnostic
+functions in isolated PowerShell jobs, captures text and structured events,
+and displays results with causes and recommendations.
 
-Requisitos
-----------
-- Windows con PowerShell 5.1.
-- .NET PresentationFramework (se carga por `main.ps1`).
-- Privilegios administrativos para ciertas comprobaciones (DISM y acceso a registro). Las reparaciones se invocan aparte y no forman parte del diagnóstico por defecto.
+Remote mode is intentionally unavailable. Selecting it only reports that
+remote transport is not configured; the application does not open a remote
+session or run local diagnostic functions against another computer.
 
-Estructura del repositorio
---------------------------
-- `main.ps1` — Punto de entrada: carga XAML, construye la UI, gestiona la cola de análisis, inicia jobs y procesa su salida.
-- `ui/main.xaml` — Definición de la interfaz WPF.
-- `utils/Utils.ps1` — Utilidades comunes: construcción y emisión de `DiagnosticEvent`, helpers I/O y manejo de excepciones.
-- `modules/` — Módulos de diagnóstico (cada script exporta funciones `Diagnostico-<Nombre>`).
-- `docs/README.md` — Documentación (este archivo).
+## Main features
 
-Cómo funciona
--------------
-1. La UI (`main.ps1`) carga `ui/main.xaml` y enlaza controles a variables PowerShell.
-2. El usuario selecciona análisis y lanza la ejecución; cada análisis se encola y se ejecuta en un job aislado.
-3. Los módulos emiten trazas (`Write-Output`) y/o objetos `DiagnosticEvent` (usando `New-DiagnosticEvent` / `Write-DiagnosticEvent`).
-4. La UI consume la salida de los jobs de forma incremental y actualiza paneles, estadísticas y log.
+- Runs diagnostic functions from the `modules/` directory.
+- Uses a FIFO queue and isolated jobs so selected diagnostics run sequentially
+  without blocking the WPF interface.
+- Supports structured `DiagnosticEvent` results with severity, causes, and
+  recommendations.
+- Displays results incrementally and maintains a technical log.
 
-Destinos externos
------------------
-Las comprobaciones de red usan estos valores predeterminados, configurables mediante variables de entorno: `DIAGNOSTIC_EXTERNAL_ICMP`, `DIAGNOSTIC_EXTERNAL_DNS_TCP` y `DIAGNOSTIC_EXTERNAL_HTTPS_TCP`.
+User-interface labels, diagnostic messages, recommendations, and generated
+results are intentionally kept in Spanish. This document translates the
+project documentation only; it does not define a localization change.
 
-Reparaciones
-------------
-`Diagnostico-IntegridadSistema` solo comprueba DISM y no ejecuta SFC. `Reparacion-IntegridadSistema` es una operación separada, modificadora y protegida por `ShouldProcess`; no se llama desde la UI.
+## Requirements
 
-Formato recomendado: `DiagnosticEvent`
-----------------------------------
-Se recomienda que los módulos emitan objetos `DiagnosticEvent` con la siguiente estructura mínima:
-- `Type`: 'DiagnosticEvent'
-- `Severity`: 'Info' | 'OK' | 'Warning' | 'Error'
-- `Message`: texto principal
-- `Causes`: array de cadenas (opcional)
-- `Recommendations`: array de cadenas (opcional)
+- Windows with Windows PowerShell 5.1.
+- .NET `PresentationFramework`, loaded by `main.ps1`.
+- Administrator privileges for checks that require them, including DISM and
+  some registry or system queries.
 
-Ejemplo mínimo
---------------
+## Repository structure
+
+```text
+DiagnosTIC/
+|- main.ps1                  Entry point, WPF orchestration, job queue, and result rendering
+|- ui/
+|  `- main.xaml              WPF interface definition
+|- utils/
+|  `- Utils.ps1              Shared I/O, event, output, and exception helpers
+|- modules/
+|  |- Network.ps1            Connectivity, DHCP, adapter, and DNS diagnostics
+|  |- Rendimiento.ps1        CPU, memory, process, disk, service, startup, temperature, driver, and WinSAT diagnostics
+|  |- Estabilidad.ps1        Critical events, SMART, memory dumps, integrity, restart history, and battery diagnostics
+|  `- Seguridad.ps1          Defender, firewall, user-account, and security-update diagnostics
+|- tests/
+|  `- Static.Tests.ps1       Dependency-free static safety and helper checks
+|- docs/
+|  `- README.md              Project documentation
+`- LICENSE                   Project license
+```
+
+Each module exposes public functions named `Diagnostico-<Name>`. The UI maps
+the analysis tree to those functions.
+
+## Execution flow
+
+1. `main.ps1` loads `ui/main.xaml` and creates the WPF interface.
+2. The user selects analyses and starts a run. Each selected analysis is
+   placed in the FIFO queue.
+3. The next analysis runs in a separate PowerShell job. The job loads
+   `utils/Utils.ps1` and the module scripts, then invokes the selected local
+   diagnostic function.
+4. Job output is polled incrementally. `DiagnosticEvent` objects become
+   enriched result entries; other output is treated as text and added to the
+   technical log and results.
+
+## External diagnostic targets
+
+Network checks use default external probe destinations. They can be
+overridden with process, user, or machine environment variables:
+
+- `DIAGNOSTIC_EXTERNAL_ICMP`
+- `DIAGNOSTIC_EXTERNAL_DNS_TCP`
+- `DIAGNOSTIC_EXTERNAL_HTTPS_TCP`
+
+## Diagnosis and repair safety contract
+
+Diagnosis and repair are separate operations. The default UI path performs
+diagnostic checks only and never invokes `Reparacion-IntegridadSistema`.
+`Diagnostico-IntegridadSistema` runs DISM `/CheckHealth`; it does not run SFC
+or repair system files. `Reparacion-IntegridadSistema` is a separate,
+modifying function protected by PowerShell `ShouldProcess` confirmation.
+
+This separation is an explicit safety boundary: diagnostic output may contain
+recommendations for corrective commands, but recommendations are not executed
+by the diagnostic run.
+
+## Structured diagnostic events
+
+Modules can emit a `DiagnosticEvent` through `Write-DiagnosticEvent`. The
+minimum useful shape is:
+
+- `Type`: `DiagnosticEvent`
+- `Severity`: `Info`, `OK`, `Warning`, or `Error`
+- `Message`: main result text
+- `Causes`: optional array of strings
+- `Recommendations`: optional array of strings
+
+The property names and severity values are implementation contracts and are
+not translated. Runtime text remains Spanish.
+
+Minimal example:
+
 ```powershell
 function Diagnostico-Ejemplo {
     [CmdletBinding()]
@@ -64,43 +117,65 @@ function Diagnostico-Ejemplo {
 }
 ```
 
-Buenas prácticas para módulos
-----------------------------
-- No interactuar directamente con la UI desde los módulos.
-- Emitir `DiagnosticEvent` para hallazgos relevantes y `Write-Output` para trazas.
-- Manejar errores con `try/catch` y usar `Write-DiagnosticException` para emitir errores estructurados.
-- Evitar operaciones interactivas (Read-Host) en módulos que se ejecutan en jobs.
-- Mantener las comprobaciones sin efectos modificadores; las reparaciones deben exponerse como funciones separadas y solicitar confirmación.
+## Module conventions
 
-Añadir nuevos análisis
-----------------------
-1. Añadir un archivo `.ps1` en `modules/`.
-2. Definir la función pública `Diagnostico-<Nombre>` con `[CmdletBinding()]`.
-3. Preferir `DiagnosticEvent` para resultados y `Write-Output` para logs.
+- Modules do not interact directly with the WPF interface.
+- Use `DiagnosticEvent` for relevant findings and `Write-Output` for trace
+  lines.
+- Handle errors with `try/catch` and use `Write-DiagnosticException` for
+  structured errors.
+- Avoid interactive input such as `Read-Host` in functions run by jobs.
+- Keep diagnostic functions non-modifying. Any repair operation must be a
+  separate function and require confirmation.
 
-Ejecución
----------
-Desde la carpeta raíz del proyecto, abrir PowerShell 5.1 y ejecutar:
+## Current scope and limitations
+
+- The application diagnoses the local Windows computer only. Remote mode is
+  present in the UI as an explicit unavailable state and performs no remote
+  query.
+- The application targets Windows PowerShell 5.1 and the WPF
+  `PresentationFramework`; PowerShell 7 is outside the current documented
+  scope.
+- Checks depend on Windows APIs, cmdlets, services, event logs, permissions,
+  and hardware capabilities. A missing API or insufficient permission can
+  make an individual result unavailable.
+- The UI presents results and technical logs but does not provide a documented
+  JSON, HTML, or other result-export path.
+- The static test script checks parsing, safety boundaries, selected helper
+  behavior, and job-queue evidence. It is not a full runtime or hardware
+  integration test suite.
+
+## Run the application
+
+From the repository root, open Windows PowerShell 5.1 and run:
+
 ```powershell
 .\main.ps1
 ```
-Si necesita permitir ejecución temporalmente:
+
+If execution policy requires a temporary process-scoped exception:
+
 ```powershell
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\main.ps1
 ```
 
-Notas operativas
-----------------
-- Ejecutar como Administrador para comprobaciones que lo requieran.
-- Seleccionar `Remoto` no consulta el equipo indicado: el soporte de transporte remoto no existe todavía.
-- Revisar módulos antes de ejecutar en entornos de producción.
-- Los jobs ofrecen aislamiento pero incrementan el uso de recursos si se lanzan muchos simultáneamente.
+Run as Administrator when a selected check requires it. Review the selected
+modules before running diagnostics in production environments.
 
-Extensibilidad
---------------
-- Posibles mejoras: soporte para PowerShell 7+, exportación de resultados (JSON/HTML) y motor de plugins para módulos firmados.
+## Tests
 
-Contacto y licencia
--------------------
+`tests/Static.Tests.ps1` has no external test-framework dependency. From the
+repository root, run the exact command:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tests\Static.Tests.ps1
+```
+
+The script parses all PowerShell files and verifies the diagnosis-versus-
+repair boundary, the unavailable remote path, queued job execution, local
+target detection, and configurable external targets.
+
+## Attribution
+
 Galvik.
