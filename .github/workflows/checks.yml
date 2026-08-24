@@ -1,0 +1,16 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  static-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Windows PowerShell static tests
+        shell: powershell
+        run: .\tests\Static.Tests.ps1
